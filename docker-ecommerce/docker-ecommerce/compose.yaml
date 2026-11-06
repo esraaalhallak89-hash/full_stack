@@ -1,0 +1,114 @@
+
+services:
+
+  phpmyadmin:
+    image: phpmyadmin:latest
+    container_name: ecommerce_phpmyadmin
+    restart: unless-stopped
+    ports:
+      - "8081:80"
+    environment:
+      PMA_HOSTS: db,warehouse-db
+      PMA_PORTS: 3306,3306
+    depends_on:
+      db:
+        condition: service_healthy
+      warehouse-db:
+        condition: service_healthy
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: docker-ecommerce-app
+    ports:
+      - "9000:8000"
+    volumes:
+      - .:/var/www/html
+      - /var/www/html/vendor
+    environment:
+      APP_ENV: local
+      APP_DEBUG: "true"
+      APP_URL: http://localhost:9000
+      JWT_TTL: "15"
+      DB_CONNECTION: mysql
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_DATABASE: ecommerce
+      DB_USERNAME: ecommerce_user
+      DB_PASSWORD: ecommerce_password
+      ADMIN_EMAIL: admin@example.com
+      ADMIN_PASSWORD: Admin#12345
+      WAREHOUSE_GRPC_HOST: warehouse:50051
+    depends_on:
+      db:
+        condition: service_healthy
+      warehouse:
+        condition: service_started
+
+  db:
+    image: mysql:8.0
+    container_name: docker-ecommerce-db
+    environment:
+      MYSQL_DATABASE: ecommerce
+      MYSQL_USER: ecommerce_user
+      MYSQL_PASSWORD: ecommerce_password
+      MYSQL_ROOT_PASSWORD: root_docker_password
+    ports:
+      - "13306:3306"
+    volumes:
+      - ecommerce_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot_docker_password"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  warehouse-db:
+    image: mysql:8.0
+    container_name: docker-ecommerce-warehouse-db
+    environment:
+      MYSQL_DATABASE: warehouse
+      MYSQL_USER: warehouse_user
+      MYSQL_PASSWORD: warehouse_password
+      MYSQL_ROOT_PASSWORD: root_warehouse_password
+    volumes:
+      - warehouse_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot_warehouse_password"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  warehouse:
+    build:
+      context: .
+      dockerfile: warehouse-service/Dockerfile
+    container_name: docker-ecommerce-warehouse
+    environment:
+      DB_HOST: warehouse-db
+      DB_PORT: 3306
+      DB_DATABASE: warehouse
+      DB_USERNAME: warehouse_user
+      DB_PASSWORD: warehouse_password
+      WAREHOUSE_SEED: "1:20,2:20,3:20,4:20,5:20,6:20,7:20,8:20,9:20,10:20"
+    depends_on:
+      warehouse-db:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ../../react-components/react-components
+      dockerfile: Dockerfile
+    container_name: react_frontend
+    restart: unless-stopped
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_BASE_URL: http://localhost:9000/api/v1
+      VITE_USE_MOCK: "false"
+    depends_on:
+      - app
+
+volumes:
+  ecommerce_data:
+  warehouse_data:
